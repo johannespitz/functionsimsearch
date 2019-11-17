@@ -14,7 +14,7 @@ from collections import defaultdict
 
 # Make sure you have a trailing slash.
 flags.DEFINE_string('work_directory',
-  "/media/thomasdullien/storage/functionsimsearch/train_data/",
+  "/tmp/train_data",
   "The directory into which the training data will be written")
 
 # Generate the fingerprint hashes.
@@ -33,7 +33,7 @@ flags.DEFINE_boolean('disable_mnemonic', False, "Disable the extraction of " +
   "mnemonic-based features. Useful to test the power of mnemonics vs. graphs.")
 
 # Clobber existing data directory or not.
-flags.DEFINE_boolean('clobber', False, "Clobber output directory or not.")
+flags.DEFINE_boolean('clobber', True, "Clobber output directory or not.")
 
 # Directory for executable files to train on.
 flags.DEFINE_string('executable_directory', './',
@@ -41,17 +41,17 @@ flags.DEFINE_string('executable_directory', './',
   "in their relevant subdirectories ELF/**/* and PE/**/*")
 
 # Number of training samples for the 'unseen' case to generate.
-flags.DEFINE_integer('unseen_training_samples', 200000, "Number of pairs for " +
+flags.DEFINE_integer('unseen_training_samples', 20000, "Number of pairs for " +
   "the training of the unseen case")
-flags.DEFINE_integer('unseen_validation_samples', 500, "Number of pairs for " +
+flags.DEFINE_integer('unseen_validation_samples', 5000, "Number of pairs for " +
   "the validation. Pick something sensible (enough to estimate means, a few " +
   "hundred at max?")
 
-flags.DEFINE_integer('max_seen_training_samples', 500000, "Maximum number of " +
+flags.DEFINE_integer('max_seen_training_samples', 50000, "Maximum number of " +
   "pairs to generate for the 'seen' case. This may be needed if you are " +
   "training on lots of data at once and fear running out of memory.")
 
-flags.DEFINE_integer('parallelism', 8, "Number of parallel invocations of " +
+flags.DEFINE_integer('parallelism', 3, "Number of parallel invocations of " +
   "the disassembly tools. Given that one disassembly operation can eat up to " +
   "12GB of RAM for large executables, this is heavily RAM-bound.")
 #=============================================================================
@@ -74,7 +74,7 @@ def FindPETrainingFiles():
   PE files need to have associated text files (with suffix .debugdump) that
   contains the output of dia2dump in the same directory. """
   exe_files = [ filename for filename in glob.iglob(
-    FLAGS.executable_directory + 'PE/**/*.exe',
+      FLAGS.executable_directory + 'PE/**/*.exe',
     recursive=True) if os.path.isfile(filename) ]
   dll_files = [ filename for filename in glob.iglob(
     FLAGS.executable_directory + 'PE/**/*.dll',
@@ -241,8 +241,8 @@ def RunFunctionFingerprints(argument_tuple):
     mnemonic = "--disable_instructions=false"
  
   write_fingerprints = open(
-    FLAGS.work_directory + "/" + "functions_%s.txt" % file_id, "wt")
- 
+    FLAGS.work_directory + "functions_%s.txt" % file_id, "wt")
+  
   try:
     fingerprints = subprocess.check_call(
       [ "../bin/functionfingerprints", "--no_shared_blocks",
