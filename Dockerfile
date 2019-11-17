@@ -13,7 +13,7 @@ RUN cd /code && \
     cd functionsimsearch && \
     chmod +x ./build_dependencies.sh && \
     ./build_dependencies.sh && \
-    make -j 16
+    make -j 6 
 
 # dispatch via entrypoint script
 # recommend mapping the /pwd volume, probably like (for ELF file):

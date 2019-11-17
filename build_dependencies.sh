@@ -50,6 +50,7 @@ cd ..
 
 # Build Dyninst
 cd dyninst-9.3.2
+sed -i 's|URL http://www.paradyn.org/libdwarf/libdwarf-20130126.tar.gz|URL https://www.prevanders.net/libdwarf-20130126.tar.gz|g' cmake/packages.cmake
 cmake ./CMakeLists.txt
 # Need to limit parallelism because 8-core DynInst builds exhaust 30 Gigs of
 # RAM on my test systems.
