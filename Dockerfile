@@ -21,5 +21,5 @@ RUN cd /code && \
 #    docker run -it --rm -v $(pwd):/pwd functionsimsearch disassemble ELF /pwd/someexe
 VOLUME /pwd
 WORKDIR /code/functionsimsearch
-RUN chmod +x /code/functionsimsearch/entrypoint.sh
-ENTRYPOINT ["/code/functionsimsearch/entrypoint.sh"]
+# RUN chmod +x /code/functionsimsearch/entrypoint.sh
+# ENTRYPOINT ["/code/functionsimsearch/entrypoint.sh"]
