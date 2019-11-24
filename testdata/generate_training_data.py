@@ -12,6 +12,8 @@ from subprocess import Popen, PIPE, STDOUT
 from operator import itemgetter
 from collections import defaultdict
 
+import numpy as np
+
 # Make sure you have a trailing slash.
 flags.DEFINE_string('work_directory',
   "/tmp/train_data",
@@ -39,17 +41,6 @@ flags.DEFINE_boolean('clobber', True, "Clobber output directory or not.")
 flags.DEFINE_string('executable_directory', './',
   "The directory where the ELF and PE executables to train on can be found " +\
   "in their relevant subdirectories ELF/**/* and PE/**/*")
-
-# Number of training samples for the 'unseen' case to generate.
-flags.DEFINE_integer('unseen_training_samples', 20000, "Number of pairs for " +
-  "the training of the unseen case")
-flags.DEFINE_integer('unseen_validation_samples', 5000, "Number of pairs for " +
-  "the validation. Pick something sensible (enough to estimate means, a few " +
-  "hundred at max?")
-
-flags.DEFINE_integer('max_seen_training_samples', 50000, "Maximum number of " +
-  "pairs to generate for the 'seen' case. This may be needed if you are " +
-  "training on lots of data at once and fear running out of memory.")
 
 flags.DEFINE_integer('parallelism', 3, "Number of parallel invocations of " +
   "the disassembly tools. Given that one disassembly operation can eat up to " +
@@ -243,7 +234,7 @@ def RunFunctionFingerprints(argument_tuple):
     mnemonic = "--disable_instructions=false"
  
   write_fingerprints = open(
-    FLAGS.work_directory + "functions_%s.txt" % file_id, "wt")
+    FLAGS.work_directory + "/" + "functions_%s.txt" % file_id, "wt")
   
   try:
     fingerprints = subprocess.check_call(
@@ -330,24 +321,6 @@ def BuildSymbolToFileAddressMapping():
         result[symbol].append((file_id, address))
   return result
 
-def SplitPercentageOfSymbolToFileAddressMapping( symbol_dict, percentage ):
-  """
-  Split the dictionary into two randomly chosen sub-dictionaries of a given
-  percentage. This means that the given percentage of functions will be placed
-  in the validation dictionary, the rest in the training dictionary.
-  """
-  result_validation = defaultdict(list)
-  result_training = defaultdict(list)
-  # Initialize the RNG to a seed to allow reproducible behavior.
-  rng = random.seed(a=0xDEADBEEF)
-  for key, value in symbol_dict.items():
-    random_value = random.uniform(0.0, 1.0)
-    if random_value < percentage:
-      result_validation[key] = value
-    else:
-      result_training[key] = value
-  return (result_validation, result_training)
-
 def IndexToRowColumn(index, n):
   """
     Given an index into the non-zero elements of an upper triangular matrix,
@@ -399,7 +372,7 @@ def FamilySize(n):
   return (n**2 - n) / 2
 
 def WriteAttractAndRepulseFromMap( input_map, output_directory,
-  number_of_pairs=1000 ):
+  number_of_pairs=1000, return_sets=False ):
   """
   Creates attraction and repulsion pairs (and writes attract.txt and repulse.txt
   to the output_directory, for the case of "generalization performance to unseen
@@ -451,6 +424,8 @@ def WriteAttractAndRepulseFromMap( input_map, output_directory,
       input_map[family_symbol][column]))
   # The next step is generating repulsion pairs.
   repulsion_set = GenerateRepulsionPairs( input_map, number_of_pairs )
+  if return_sets:
+    return (attraction_set, repulsion_set)
   # Write the files.
   WritePairsFile( attraction_set, output_directory + "/attract.txt" )
   WritePairsFile( repulsion_set, output_directory + "/repulse.txt" )
@@ -495,91 +470,85 @@ def WriteFunctionsTxt( output_directory ):
       output_file.write(data)
   output_file.close()
 
-def WriteUnseenTrainingAndValidationData(symbol_to_files_and_address, FLAGS):
-  """
-  Split 20% of the functions into a separate set, then generate attraction and
-  repulsion pairs from each set & write them out.
-  """
-  # Split off 20% of the symbols into a control map.
-  print("Splitting into validation set and training set...")
-  validation_map, training_map = SplitPercentageOfSymbolToFileAddressMapping(
-    symbol_to_files_and_address, 0.20)
 
-  if not os.path.exists(FLAGS.work_directory + "/training_data_unseen"):
-    os.mkdir(FLAGS.work_directory + "/training_data_unseen")
-  if not os.path.exists(FLAGS.work_directory + "/validation_data_unseen"):
-    os.mkdir(FLAGS.work_directory + "/validation_data_unseen")
 
-  # Write the training set.
-  print("Writing unseen training attract.txt and repulse.txt...")
-  WriteAttractAndRepulseFromMap( training_map,
-    FLAGS.work_directory + "/training_data_unseen",
-    number_of_pairs=FLAGS.unseen_training_samples)
-  WriteFunctionsTxt( FLAGS.work_directory + "/training_data_unseen" )
 
-  # Write the validation set.
-  print("Writing unseen validation attract.txt and repulse.txt...")
-  WriteAttractAndRepulseFromMap( validation_map, FLAGS.work_directory +
-    "/validation_data_unseen", number_of_pairs=FLAGS.unseen_validation_samples )
-  WriteFunctionsTxt( FLAGS.work_directory + "/validation_data_unseen" )
 
-def WriteSeenTrainingAndValidationData(symbol_to_file_and_address, FLAGS):
-  """
-  For each function family, do:
-     Remove random element R for the validation set
-     Generate all pairs of attraction for the family without R (training)
-     Generate all pairs of attraction between family members and R (validation)
+def SplitFamilies(symbol_dict, percentage_list):
+  result = [defaultdict(list) for _ in percentage_list]
+  for key, value in symbol_dict.items():
+    idx = np.random.choice(len(percentage_list), p=percentage_list)
+    result[idx][key] = value
+  return result
 
-     Now generate as many random repulsion pairs.
-  """
-  training_attraction_set = set()
-  validation_attraction_set = set()
+def GenerateAllPairs(symbol_dict, return_sets, output_directory=""):
+  if not return_sets:
+    assert(not output_directory=="")
+  return WriteAttractAndRepulseFromMap( symbol_dict,
+    output_directory, number_of_pairs=100, return_sets=return_sets)  
+
+def SplitGraphs(symbol_dict, percentage_list):
+  # Need to ensure that there is at least one graph of each family in training
+  num_splits = percentage_list
+  result = [defaultdict(list) for _ in percentage_list]
   for function_family, elements in symbol_to_file_and_address.items():
-    # Pick a random element from the family.
-    validation_element = random.choice(elements)
-    # Take the remaining members of the function family.
-    training_elements = [ x for x in elements if x != validation_element ]
-    # Take all the pairs of elements for the function family \ validation_element
-    training_attraction_set.update(
-      [ (x, y) for x in training_elements for y in training_elements if
-        x < y ])
-    # The second element of the tuple is the validation_element.
-    validation_attraction_set.update(
-      [ (x, y) for x in training_elements for y in [validation_element] ])
-  print("'Seen' case: Got %d training pairs, %d validation pairs" %
-    (len(training_attraction_set), len(validation_attraction_set)))
-  # Generate an equal number of repulsion pairs.
-  if len(training_attraction_set) > FLAGS.max_seen_training_samples:
-    print("[!] Excessive number of training samples (%d), cutting to %d." % (
-      len(training_attraction_set), FLAGS.max_seen_training_samples))
-    # Choose 500k element subset.
-    training_attraction_list = list(training_attraction_set)
-    random_indices = numpy.random.choice(len(training_attraction_list),
-      FLAGS.max_seen_training_samples, replace=False)
-    training_attraction_set = set([ training_attraction_list[i] for i in
-      random_indices])
-    print("[!] Done cutting.")
-  repulsion_set = GenerateRepulsionPairs( symbol_to_file_and_address,
-    len(training_attraction_set) + len(validation_attraction_set) )
-  repulsion_pairs = list(repulsion_set)
-  random.shuffle(repulsion_pairs)
-  training_repulsion_set = set(repulsion_pairs[0:len(training_attraction_set)])
-  validation_repulsion_set = set(repulsion_pairs[len(training_attraction_set):0])
-  # Write all the data.
-  if not os.path.exists(FLAGS.work_directory + "/training_data_seen"):
-    os.mkdir(FLAGS.work_directory + "/training_data_seen")
-  if not os.path.exists(FLAGS.work_directory + "/validation_data_seen"):
-    os.mkdir(FLAGS.work_directory + "/validation_data_seen")
-  WritePairsFile( training_attraction_set,
-    FLAGS.work_directory + "training_data_seen/attract.txt" )
-  WritePairsFile( training_repulsion_set,
-    FLAGS.work_directory + "training_data_seen/repulse.txt" )
-  WritePairsFile( validation_attraction_set,
-    FLAGS.work_directory + "validation_data_seen/attract.txt" )
-  WritePairsFile( validation_repulsion_set,
-    FLAGS.work_directory + "validation_data_seen/repulse.txt" )
-  WriteFunctionsTxt( FLAGS.work_directory + "/validation_data_seen" )
-  WriteFunctionsTxt( FLAGS.work_directory + "/training_data_seen" )
+    if len(elements) < num_splits:
+      continue
+    for idx in range(num_splits):
+      elem = elements.pop()
+      result[idx][function_family].append(elem)
+    for elem in elements:
+      idx = np.random.choice(num_splits, p=percentage_list)
+      result[idx][function_family].append(elem)
+  return result
+
+def SplitPairs(symbol_dict, percentage_list):
+
+  (attraction_set, repulsion_set) = GenerateAllPairs(symbol_dict, return_sets=True)
+  a_l, r_l = list(attraction_set), list(repulsion_set)
+  a = len(attraction_list)
+  r = len(repulsion_list)
+  p = np.cumsum(percentage_list)
+  assert(p[2] == 1)
+  attract_train, attract_val, attract_test = a_l[0:p[0]*a], a_l[p[0]*a:p[1]*a], a_l[p[1]*a:a]
+  repulse_train, repulse_val, repulse_test = r_l[0:p[0]*r], r_l[p[0]*r:p[1]*r], r_l[p[1]*r:r]
+
+  train = attract_train + repulse_train
+  val = attract_val + repulse_val
+  test = attract_test + repulse_test
+
+  # Make sure every graph is in the training set
+  print("Start checking for graphs missing in training set")
+
+  train_graphs = set()
+  for pair in train:
+    train_graphs.update([pair[0], pair[1])
+
+  move_list = []
+  for idx, pair in enumerate(val):
+    if (not pair[0] in train_graphs) or (not pair[1] in train_graphs):
+      train_graphs.update([pair[0], pair[1])
+      move_list.append(idx)
+
+  for idx in reversed(move_list)
+    train.append(val.pop(odx))
+
+  move_list = []
+  for idx, pair in enumerate(test):
+    if (not pair[0] in train_graphs) or (not pair[1] in train_graphs):
+      train_graphs.update([pair[0], pair[1])
+      move_list.append(idx)
+
+  for idx in reversed(move_list)
+    train.append(val.pop(odx))
+
+  total = len(train) + len(val) + len(test)
+  print(f"Final Split is: {len(train)/total}/{len(val)/total}/{len(test)}")
+
+  return train, val, test
+
+
+
 
 
 def main(argv):
@@ -612,26 +581,44 @@ def main(argv):
 
   print(len(symbol_to_files_and_address))
 
-  for i, (symbol, file_and_address) in enumerate(symbol_to_files_and_address):
+  for i, (symbol, file_and_address) in enumerate(symbol_to_files_and_address.items()):
     print(i)
     print(symbol)
     print(file_and_address)
     if i > 5:
       break
+  
+  np.random.seed(42)
+  random.seed(42)
 
-  # split function-families 80/10/10
-  # split function-graphs 80/10/10
-  # split graph-pairs 80/10/10
+  # split function-families
+  chunk, val3, test3 = SplitFamilies(symbol_to_files_and_address, [.8, .1, .1])
+  GenerateAllPairs(val3, return_sets=False, 
+    output_directory=FLAGS.work_directory + "/val3",)
+  GenerateAllPairs(test3, return_sets=False, 
+    output_directory=FLAGS.work_directory + "/test3")
+    
+  # simple alternative training set (no fancy validation)
+  GenerateAllPairs(chunk, return_sets=False, 
+    output_directory=FLAGS.work_directory + "/train_all")
 
-  # # First, generate the training and validation data for performance on unseen
-  # # functions - to test how well we generalize beyond things we have already
-  # # seen variants of.
-  # WriteUnseenTrainingAndValidationData(symbol_to_files_and_address, FLAGS)
+  # split function-graphs
+  chunk, val2, test2 = SplitGraphs(chunk, [.8, .1, .1])
+  # could instead do pairs across like the original code
+  GenerateAllPairs(val2, return_sets=False, 
+    output_directory=FLAGS.work_directory + "/val2")
+  GenerateAllPairs(test2, return_sets=False, 
+    output_directory=FLAGS.work_directory + "/test2")
 
-  # # Secondly, generate the training and validation data for performance on 'seen'
-  # # functions -- e.g. how well we perform if we need to spot a variant of a function
-  # # we have not seen before.
-  # WriteSeenTrainingAndValidationData(symbol_to_files_and_address, FLAGS)
+  # split graph-pairs
+  train, val1, test1 = SplitPairs(chunk, [.8, .1, .1])
+
+  WritePairsFile( train[0], output_directory + "/train/attract.txt" )
+  WritePairsFile( train[1], output_directory + "/train/repulse.txt" )
+  WritePairsFile( val1[0], output_directory + "/val1/attract.txt" )
+  WritePairsFile( val1[1], output_directory + "/val1/repulse.txt" )
+  WritePairsFile( test1[0], output_directory + "/test1/attract.txt" )
+  WritePairsFile( test1[1], output_directory + "/test1/repulse.txt" )
 
   print("Done, ready to run training.")
 
