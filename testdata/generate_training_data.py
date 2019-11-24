@@ -57,7 +57,6 @@ def FindELFTrainingFiles():
   elf_files = [ filename for filename in glob.iglob(
     FLAGS.executable_directory + 'ELF/**/*', recursive=True)
     if os.path.isfile(filename) ]
-  elf_files = elf_files[0:8]
   print("Returning list of files from ELF directory: %s" % elf_files)
   return elf_files
 
@@ -73,7 +72,6 @@ def FindPETrainingFiles():
     recursive=True) if os.path.isfile(filename) ]
   print(FLAGS.executable_directory + 'PE/**/*.exe')
   result = exe_files + dll_files
-  result = result[0:8]
   print("Returning list of files from PE directory: %s" % result)
   return result
 
@@ -406,6 +404,7 @@ def WriteAttractAndRepulseFromMap( input_map, output_directory,
   else:
     # Request is for the maximum number of pairs available.
     indices = set(range(int(total_number_of_attraction_pairs)))
+    number_of_pairs = total_number_of_attraction_pairs
   # We should have a set of indices for the attract.txt pairs. Now generate
   # the actual pairs.
   attraction_set = set()
@@ -469,7 +468,7 @@ def SplitFamilies(symbol_dict, percentage_list):
     result[idx][key] = value
   return result
 
-def GenerateAllPairs(symbol_dict, return_sets, output_directory="", number_of_pairs=100):
+def GenerateAllPairs(symbol_dict, return_sets, output_directory="", number_of_pairs=1e7):
   if not return_sets:
     assert(not output_directory=="")
   return WriteAttractAndRepulseFromMap( symbol_dict,
@@ -522,7 +521,7 @@ def SplitPairs(symbol_dict, percentage_list):
         move_list.append(idx)
 
     for idx in reversed(move_list):
-      train.append(val[pair_type].pop(idx))
+      train[pair_type].append(val[pair_type].pop(idx))
 
     move_list = []
     for idx, pair in enumerate(test[pair_type]):
@@ -531,10 +530,10 @@ def SplitPairs(symbol_dict, percentage_list):
         move_list.append(idx)
 
     for idx in reversed(move_list):
-      train.append(test[pair_type].pop(idx))
+      train[pair_type].append(test[pair_type].pop(idx))
 
   total = len(train[0]) + len(train[1]) + len(val[0]) + len(val[1]) + len(test[0]) + len(test[1])
-  print(f"Final Split is: {(len(train[0]) + len(train[1]))/total}/{(len(train[0]) + len(train[1]))/total}/{(len(train[0]) + len(train[1]))/total}")
+  print(f"Final Split is: {(len(train[0]) + len(train[1]))/total}/{(len(val[0]) + len(val[1]))/total}/{(len(test[0]) + len(test[1]))/total}")
 
   return train, val, test
 
@@ -548,9 +547,9 @@ def WriteSeenTrainingAndValidationData(symbol_to_file_and_address, FLAGS):
   """
   training_attraction_set = set()
   validation_attraction_set = set()
+  test_attraction_set = set()
   for function_family, elements in symbol_to_file_and_address.items():
     if len(elements) < 3:
-      print("Skipping because symbol because less than 3 graphs")
       continue
     # Pick a random element from the family.
     validation_element = random.choice(elements)
@@ -570,7 +569,7 @@ def WriteSeenTrainingAndValidationData(symbol_to_file_and_address, FLAGS):
     test_attraction_set.update(
       [ (x, y) for x in training_elements + [validation_element] for y in [test_element] ])
   print("'Seen' case: Got %d training pairs, %d validation pairs, %d test_pairs" %
-    (len(training_attraction_set), len(validation_attraction_set), len(training_attraction_set)))
+    (len(training_attraction_set), len(validation_attraction_set), len(test_attraction_set)))
   repulsion_set = GenerateRepulsionPairs( symbol_to_file_and_address,
     len(training_attraction_set) + len(validation_attraction_set) + len(test_attraction_set) )
   repulsion_pairs = list(repulsion_set)
@@ -586,22 +585,22 @@ def WriteSeenTrainingAndValidationData(symbol_to_file_and_address, FLAGS):
   if not os.path.exists(FLAGS.work_directory + "/test_across"):
     os.mkdir(FLAGS.work_directory + "/test_across")
   WritePairsFile( training_attraction_set,
-    FLAGS.work_directory + "train_across/attract.txt" )
+    FLAGS.work_directory + "/train_across/attract.txt" )
   WritePairsFile( training_repulsion_set,
-    FLAGS.work_directory + "train_across/repulse.txt" )
+    FLAGS.work_directory + "/train_across/repulse.txt" )
   WritePairsFile( validation_attraction_set,
-    FLAGS.work_directory + "val_across/attract.txt" )
+    FLAGS.work_directory + "/val_across/attract.txt" )
   WritePairsFile( validation_repulsion_set,
-    FLAGS.work_directory + "val_across/repulse.txt" )
+    FLAGS.work_directory + "/val_across/repulse.txt" )
   WritePairsFile( test_attraction_set,
-    FLAGS.work_directory + "test_across/attract.txt" )
+    FLAGS.work_directory + "/test_across/attract.txt" )
   WritePairsFile( test_repulsion_set,
-    FLAGS.work_directory + "test_across/repulse.txt" )
+    FLAGS.work_directory + "/test_across/repulse.txt" )
 
 def WriteFinalSplit(train, val1, test1):
   output_directory = FLAGS.work_directory
-  WritePairsFile( train[0], output_directory + "/train/attract.txt" )
-  WritePairsFile( train[1], output_directory + "/train/repulse.txt" )
+  WritePairsFile( train[0], output_directory + "/train12/attract.txt" )
+  WritePairsFile( train[1], output_directory + "/train12/repulse.txt" )
   WritePairsFile( val1[0], output_directory + "/val1/attract.txt" )
   WritePairsFile( val1[1], output_directory + "/val1/repulse.txt" )
   WritePairsFile( test1[0], output_directory + "/test1/attract.txt" )
@@ -666,10 +665,16 @@ def main(argv):
 
   ### Alternative 2
   # Here we split the data into the following sets
+  # train_across, val_across, test_across and val, test
+  WriteSeenTrainingAndValidationData(train_all, FLAGS)
+  ### End Alternative 2
+  
+  ### Alternative 3
+  # Here we split the data into the following sets
   # train12, val1, val2, test1, test2 and val, test
 
   # split function-graphs
-  chunk, val2, test2 = SplitGraphs(train_all, [.8, .1, .1])
+  chunk, val2, test2 = SplitGraphs(train_all, [.7, .15, .15])
   # could instead do pairs across like the original code
   GenerateAllPairs(val2, return_sets=False, output_directory=FLAGS.work_directory + "/val2")
   GenerateAllPairs(test2, return_sets=False, output_directory=FLAGS.work_directory + "/test2")
@@ -677,13 +682,8 @@ def main(argv):
   # split graph-pairs
   train12, val1, test1 = SplitPairs(chunk, [.8, .1, .1])
   WriteFinalSplit(train12, val1, test1)
-  ### End Alternative 2
-
-  ### Alternative 3
-  # Here we split the data into the following sets
-  # train_across, val_across, test_across and val, test
-  WriteSeenTrainingAndValidationData(train_all, FLAGS)
   ### End Alternative 3
+
 
   print("Done, ready to run training.")
 
