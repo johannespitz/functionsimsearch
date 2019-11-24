@@ -457,10 +457,6 @@ def WritePairsFile( set_of_pairs, output_name ):
       pair[1][1]))
   result.close()
 
-
-
-
-
 def SplitFamilies(symbol_dict, percentage_list):
   result = [defaultdict(list) for _ in percentage_list]
   for key, value in symbol_dict.items():
@@ -618,8 +614,6 @@ def InitSeedAndDirs():
   os.makedirs(FLAGS.work_directory + "/test2")
   os.makedirs(FLAGS.work_directory + "/test1")
 
-
-
 def main(argv):
   del argv # unused.
 
@@ -684,8 +678,7 @@ def main(argv):
   WriteFinalSplit(train12, val1, test1)
   ### End Alternative 3
 
-
-  print("Done, ready to run training.")
+  print("Done.")
 
 if __name__ == '__main__':
   app.run(main)
