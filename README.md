@@ -1,3 +1,29 @@
+# Generate CFG's
+
+In this fork I made some modification to simply generate control flow graph pairs with different train/val/test splits.
+To reproduce the pairs or generate your own do:
+
+```bash
+docker build -t functionsimsearch .
+docker run -it -e functionsimsearch_test bash
+```
+
+in the container
+```bash
+cd testdata
+python3 generate_training_data.py
+```
+
+in a new terminal 
+```bash
+docker ps
+docker cp <id>:/tmp/train_data <path_on_your_filesystem>
+```
+
+If you want to use different binaries replace those in testdata/ELF and testdata/PE.
+If you are interested in different splits, adapt the `testdata/generate_training_data.py`
+
+### Original README content
 # FunctionSimSearch
 
 FunctionSimSearch - Example C++ code to demonstrate how to do SimHash-based
