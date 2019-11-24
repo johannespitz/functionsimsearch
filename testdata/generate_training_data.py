@@ -57,7 +57,7 @@ def FindELFTrainingFiles():
   elf_files = [ filename for filename in glob.iglob(
     FLAGS.executable_directory + 'ELF/**/*', recursive=True)
     if os.path.isfile(filename) ]
-  elf_files = elf_files[0:2]
+  elf_files = elf_files[0:8]
   print("Returning list of files from ELF directory: %s" % elf_files)
   return elf_files
 
@@ -73,7 +73,7 @@ def FindPETrainingFiles():
     recursive=True) if os.path.isfile(filename) ]
   print(FLAGS.executable_directory + 'PE/**/*.exe')
   result = exe_files + dll_files
-  result = result[0:2]
+  result = result[0:8]
   print("Returning list of files from PE directory: %s" % result)
   return result
 
@@ -489,9 +489,9 @@ def GenerateAllPairs(symbol_dict, return_sets, output_directory=""):
 
 def SplitGraphs(symbol_dict, percentage_list):
   # Need to ensure that there is at least one graph of each family in training
-  num_splits = percentage_list
+  num_splits = len(percentage_list)
   result = [defaultdict(list) for _ in percentage_list]
-  for function_family, elements in symbol_to_file_and_address.items():
+  for function_family, elements in symbol_dict.items():
     if len(elements) < num_splits:
       continue
     for idx in range(num_splits):
@@ -506,12 +506,12 @@ def SplitPairs(symbol_dict, percentage_list):
 
   (attraction_set, repulsion_set) = GenerateAllPairs(symbol_dict, return_sets=True)
   a_l, r_l = list(attraction_set), list(repulsion_set)
-  a = len(attraction_list)
-  r = len(repulsion_list)
+  a = len(a_l)
+  r = len(r_l)
   p = np.cumsum(percentage_list)
   assert(p[2] == 1)
-  attract_train, attract_val, attract_test = a_l[0:p[0]*a], a_l[p[0]*a:p[1]*a], a_l[p[1]*a:a]
-  repulse_train, repulse_val, repulse_test = r_l[0:p[0]*r], r_l[p[0]*r:p[1]*r], r_l[p[1]*r:r]
+  attract_train, attract_val, attract_test = a_l[0:int(p[0]*a)], a_l[int(p[0]*a):int(p[1]*a)], a_l[int(p[1]*a):a]
+  repulse_train, repulse_val, repulse_test = r_l[0:int(p[0]*r)], r_l[int(p[0]*r):int(p[1]*r)], r_l[int(p[1]*r):r]
 
   train = attract_train + repulse_train
   val = attract_val + repulse_val
@@ -522,30 +522,30 @@ def SplitPairs(symbol_dict, percentage_list):
 
   train_graphs = set()
   for pair in train:
-    train_graphs.update([pair[0], pair[1])
+    train_graphs.update([pair[0], pair[1]])
 
   move_list = []
   for idx, pair in enumerate(val):
     if (not pair[0] in train_graphs) or (not pair[1] in train_graphs):
-      train_graphs.update([pair[0], pair[1])
+      train_graphs.update([pair[0], pair[1]])
       move_list.append(idx)
 
-  for idx in reversed(move_list)
-    train.append(val.pop(odx))
+  for idx in reversed(move_list):
+    train.append(val.pop(idx))
 
   move_list = []
   for idx, pair in enumerate(test):
     if (not pair[0] in train_graphs) or (not pair[1] in train_graphs):
-      train_graphs.update([pair[0], pair[1])
+      train_graphs.update([pair[0], pair[1]])
       move_list.append(idx)
 
-  for idx in reversed(move_list)
-    train.append(val.pop(odx))
+  for idx in reversed(move_list):
+    train.append(test.pop(idx))
 
   total = len(train) + len(val) + len(test)
-  print(f"Final Split is: {len(train)/total}/{len(val)/total}/{len(test)}")
+  print(f"Final Split is: {len(train)/total}/{len(val)/total}/{len(test)/total}")
 
-  return train, val, test
+  return (train, []), (val, []), (test, [])
 
 
 
@@ -564,8 +564,8 @@ def main(argv):
     shutil.rmtree(FLAGS.work_directory)
     os.mkdir(FLAGS.work_directory)
 
-  if FLAGS.work_directory[-1] != '/':
-    FLAGS.work_directory = FLAGS.work_directory + '/'
+  # if FLAGS.work_directory[-1] != '/':
+  #   FLAGS.work_directory = FLAGS.work_directory + '/'
 
   print("Processing ELF training files to extract features...")
   ProcessTrainingFiles(FindELFTrainingFiles(), "ELF")
@@ -591,6 +591,16 @@ def main(argv):
   np.random.seed(42)
   random.seed(42)
 
+  os.makedirs(FLAGS.work_directory + "/val3")
+  os.makedirs(FLAGS.work_directory + "/val2")
+  os.makedirs(FLAGS.work_directory + "/val1")
+  os.makedirs(FLAGS.work_directory + "/test3")
+  os.makedirs(FLAGS.work_directory + "/test2")
+  os.makedirs(FLAGS.work_directory + "/test1")
+
+  os.makedirs(FLAGS.work_directory + "/train_all")
+  os.makedirs(FLAGS.work_directory + "/train")
+
   # split function-families
   chunk, val3, test3 = SplitFamilies(symbol_to_files_and_address, [.8, .1, .1])
   GenerateAllPairs(val3, return_sets=False, 
@@ -612,7 +622,8 @@ def main(argv):
 
   # split graph-pairs
   train, val1, test1 = SplitPairs(chunk, [.8, .1, .1])
-
+  
+  output_directory = FLAGS.work_directory
   WritePairsFile( train[0], output_directory + "/train/attract.txt" )
   WritePairsFile( train[1], output_directory + "/train/repulse.txt" )
   WritePairsFile( val1[0], output_directory + "/val1/attract.txt" )
