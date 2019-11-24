@@ -571,7 +571,7 @@ def WriteSeenTrainingAndValidationData(symbol_to_file_and_address, FLAGS):
   repulsion_pairs = list(repulsion_set)
   random.shuffle(repulsion_pairs)
   training_repulsion_set = set(repulsion_pairs[:len(training_attraction_set)])
-  validation_repulsion_set = set(repulsion_pairs[len(training_attraction_set):len(validation_attraction_set)])
+  validation_repulsion_set = set(repulsion_pairs[len(training_attraction_set):len(training_attraction_set) + len(validation_attraction_set)])
   test_repulsion_set = set(repulsion_pairs[len(training_attraction_set) + len(validation_attraction_set):])
   # Write all the data.
   if not os.path.exists(FLAGS.work_directory + "/train_across"):
