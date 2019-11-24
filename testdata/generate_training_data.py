@@ -66,6 +66,7 @@ def FindELFTrainingFiles():
   elf_files = [ filename for filename in glob.iglob(
     FLAGS.executable_directory + 'ELF/**/*', recursive=True)
     if os.path.isfile(filename) ]
+  elf_files = elf_files[0:2]
   print("Returning list of files from ELF directory: %s" % elf_files)
   return elf_files
 
@@ -81,6 +82,7 @@ def FindPETrainingFiles():
     recursive=True) if os.path.isfile(filename) ]
   print(FLAGS.executable_directory + 'PE/**/*.exe')
   result = exe_files + dll_files
+  result = result[0:2]
   print("Returning list of files from PE directory: %s" % result)
   return result
 
@@ -608,15 +610,28 @@ def main(argv):
   print("Loading all extracted symbols and grouping them...")
   symbol_to_files_and_address = BuildSymbolToFileAddressMapping()
 
-  # First, generate the training and validation data for performance on unseen
-  # functions - to test how well we generalize beyond things we have already
-  # seen variants of.
-  WriteUnseenTrainingAndValidationData(symbol_to_files_and_address, FLAGS)
+  print(len(symbol_to_files_and_address))
 
-  # Secondly, generate the training and validation data for performance on 'seen'
-  # functions -- e.g. how well we perform if we need to spot a variant of a function
-  # we have not seen before.
-  WriteSeenTrainingAndValidationData(symbol_to_files_and_address, FLAGS)
+  for i, (symbol, file_and_address) in enumerate(symbol_to_files_and_address):
+    print(i)
+    print(symbol)
+    print(file_and_address)
+    if i > 5:
+      break
+
+  # split function-families 80/10/10
+  # split function-graphs 80/10/10
+  # split graph-pairs 80/10/10
+
+  # # First, generate the training and validation data for performance on unseen
+  # # functions - to test how well we generalize beyond things we have already
+  # # seen variants of.
+  # WriteUnseenTrainingAndValidationData(symbol_to_files_and_address, FLAGS)
+
+  # # Secondly, generate the training and validation data for performance on 'seen'
+  # # functions -- e.g. how well we perform if we need to spot a variant of a function
+  # # we have not seen before.
+  # WriteSeenTrainingAndValidationData(symbol_to_files_and_address, FLAGS)
 
   print("Done, ready to run training.")
 
