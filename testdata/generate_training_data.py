@@ -16,11 +16,11 @@ import numpy as np
 
 # Make sure you have a trailing slash.
 flags.DEFINE_string('work_directory',
-  "/tmp/train_data",
+  "/tmp/data",
   "The directory into which the training data will be written")
 
 # Generate the fingerprint hashes.
-flags.DEFINE_boolean('generate_fingerprints', True, "Decides whether the " +
+flags.DEFINE_boolean('generate_fingerprints', False, "Decides whether the " +
   "hashes of all features should be extracted and written.")
 
 # Generate full disassemblies in JSON, too. This is not necessary for any of
@@ -370,7 +370,7 @@ def FamilySize(n):
   return (n**2 - n) / 2
 
 def WriteAttractAndRepulseFromMap( input_map, output_directory,
-  number_of_pairs=1000, return_sets=False ):
+  number_of_pairs=1000, return_sets=False, triplets=False ):
   """
   Creates attraction and repulsion pairs (and writes attract.txt and repulse.txt
   to the output_directory, for the case of "generalization performance to unseen
@@ -404,10 +404,14 @@ def WriteAttractAndRepulseFromMap( input_map, output_directory,
   else:
     # Request is for the maximum number of pairs available.
     indices = set(range(int(total_number_of_attraction_pairs)))
-    number_of_pairs = total_number_of_attraction_pairs
   # We should have a set of indices for the attract.txt pairs. Now generate
   # the actual pairs.
-  attraction_set = set()
+  if triplets:
+    symbols_as_list = list(input_map.keys())
+    symbols_as_list.sort()
+    triplets_set = set()
+  else:
+    attraction_set = set()
   for index in indices:
     # First find the symbol into whose family the index falls.
     family_index = max(bisect.bisect(symbol_to_index, (index, 'a')) - 1, 0)
@@ -419,16 +423,30 @@ def WriteAttractAndRepulseFromMap( input_map, output_directory,
     row, column = IndexToRowColumn(within_family_index, n)
     row = int(row)
     column = int(column)
-    attraction_set.add((input_map[family_symbol][row],
-      input_map[family_symbol][column]))
-  # The next step is generating repulsion pairs.
-  repulsion_set = GenerateRepulsionPairs( input_map, number_of_pairs )
-  if return_sets:
-    return (attraction_set, repulsion_set)
-  # Write the files.
-  WritePairsFile( attraction_set, output_directory + "/attract.txt" )
-  WritePairsFile( repulsion_set, output_directory + "/repulse.txt" )
-  return
+    if triplets:
+      while True:
+        other_symbol = numpy.random.choice( symbols_as_list )
+        if other_symbol != family_symbol: 
+          break
+      other_graph = random.choice( input_map[other_symbol] )
+      triplets_set.add((input_map[family_symbol][row],
+        input_map[family_symbol][column], other_graph))
+    else:
+      attraction_set.add((input_map[family_symbol][row],
+        input_map[family_symbol][column]))
+
+  if triplets:
+    WriteTripletsFile( triplets_set, output_directory + "/triplets.txt" )
+  else:
+    if number_of_pairs > len(attraction_set):
+      number_of_pairs = len(attraction_set)
+    # The next step is generating repulsion pairs.
+    repulsion_set = GenerateRepulsionPairs( input_map, number_of_pairs )
+    if return_sets:
+      return (attraction_set, repulsion_set)
+    # Write the files.
+    WritePairsFile( attraction_set, output_directory + "/attract.txt" )
+    WritePairsFile( repulsion_set, output_directory + "/repulse.txt" )
 
 def GenerateRepulsionPairs( input_map, number_of_pairs ):
   repulsion_set = set()
@@ -457,6 +475,18 @@ def WritePairsFile( set_of_pairs, output_name ):
       pair[1][1]))
   result.close()
 
+def WriteTripletsFile( set_of_triplets, output_name ):
+  """
+  Take a set of triplets ((file_idA, addressA), (file_idB, addressB), (file_idC, addressC)) and write them
+  into a file as:
+    file_idA:addressA file_idB:addressB file_idC:addressC
+  """
+  result = open(output_name, "wt")
+  for triplet in set_of_triplets:
+    result.write("%s:%s %s:%s %s:%s\n" % (triplet[0][0], triplet[0][1], triplet[1][0],
+      triplet[1][1], triplet[2][0], triplet[2][1]))
+  result.close()
+
 def SplitFamilies(symbol_dict, percentage_list):
   result = [defaultdict(list) for _ in percentage_list]
   for key, value in symbol_dict.items():
@@ -469,6 +499,12 @@ def GenerateAllPairs(symbol_dict, return_sets, output_directory="", number_of_pa
     assert(not output_directory=="")
   return WriteAttractAndRepulseFromMap( symbol_dict,
     output_directory, number_of_pairs=number_of_pairs, return_sets=return_sets)  
+
+def GenerateTriplets(symbol_dict, return_sets, output_directory="", number_of_pairs=1e7):
+  if not return_sets:
+    assert(not output_directory=="")
+  return WriteAttractAndRepulseFromMap( symbol_dict,
+    output_directory, number_of_pairs=number_of_pairs, return_sets=return_sets, triplets=True)  
 
 def SplitGraphs(symbol_dict, percentage_list):
   # Need to ensure that there is at least one graph of each family in training
@@ -574,45 +610,50 @@ def WriteSeenTrainingAndValidationData(symbol_to_file_and_address, FLAGS):
   validation_repulsion_set = set(repulsion_pairs[len(training_attraction_set):len(training_attraction_set) + len(validation_attraction_set)])
   test_repulsion_set = set(repulsion_pairs[len(training_attraction_set) + len(validation_attraction_set):])
   # Write all the data.
-  if not os.path.exists(FLAGS.work_directory + "/train_across"):
-    os.mkdir(FLAGS.work_directory + "/train_across")
-  if not os.path.exists(FLAGS.work_directory + "/val_across"):
-    os.mkdir(FLAGS.work_directory + "/val_across")
-  if not os.path.exists(FLAGS.work_directory + "/test_across"):
-    os.mkdir(FLAGS.work_directory + "/test_across")
+  if not os.path.exists(FLAGS.work_directory + "/pairs/train_across"):
+    os.mkdir(FLAGS.work_directory + "/pairs/train_across")
+  if not os.path.exists(FLAGS.work_directory + "/pairs/val_across"):
+    os.mkdir(FLAGS.work_directory + "/pairs/val_across")
+  if not os.path.exists(FLAGS.work_directory + "/pairs/test_across"):
+    os.mkdir(FLAGS.work_directory + "/pairs/test_across")
   WritePairsFile( training_attraction_set,
-    FLAGS.work_directory + "/train_across/attract.txt" )
+    FLAGS.work_directory + "/pairs/train_across/attract.txt" )
   WritePairsFile( training_repulsion_set,
-    FLAGS.work_directory + "/train_across/repulse.txt" )
+    FLAGS.work_directory + "/pairs/train_across/repulse.txt" )
   WritePairsFile( validation_attraction_set,
-    FLAGS.work_directory + "/val_across/attract.txt" )
+    FLAGS.work_directory + "/pairs/val_across/attract.txt" )
   WritePairsFile( validation_repulsion_set,
-    FLAGS.work_directory + "/val_across/repulse.txt" )
+    FLAGS.work_directory + "/pairs/val_across/repulse.txt" )
   WritePairsFile( test_attraction_set,
-    FLAGS.work_directory + "/test_across/attract.txt" )
+    FLAGS.work_directory + "/pairs/test_across/attract.txt" )
   WritePairsFile( test_repulsion_set,
-    FLAGS.work_directory + "/test_across/repulse.txt" )
+    FLAGS.work_directory + "/pairs/test_across/repulse.txt" )
 
 def WriteFinalSplit(train, val1, test1):
   output_directory = FLAGS.work_directory
-  WritePairsFile( train[0], output_directory + "/train12/attract.txt" )
-  WritePairsFile( train[1], output_directory + "/train12/repulse.txt" )
-  WritePairsFile( val1[0], output_directory + "/val1/attract.txt" )
-  WritePairsFile( val1[1], output_directory + "/val1/repulse.txt" )
-  WritePairsFile( test1[0], output_directory + "/test1/attract.txt" )
-  WritePairsFile( test1[1], output_directory + "/test1/repulse.txt" )
+  WritePairsFile( train[0], output_directory + "/pairs/train12/attract.txt" )
+  WritePairsFile( train[1], output_directory + "/pairs/train12/repulse.txt" )
+  WritePairsFile( val1[0], output_directory + "/pairs/val1/attract.txt" )
+  WritePairsFile( val1[1], output_directory + "/pairs/val1/repulse.txt" )
+  WritePairsFile( test1[0], output_directory + "/pairs/test1/attract.txt" )
+  WritePairsFile( test1[1], output_directory + "/pairs/test1/repulse.txt" )
 
 def InitSeedAndDirs():
   np.random.seed(42)
   random.seed(42)
-  os.makedirs(FLAGS.work_directory + "/train_all")
-  os.makedirs(FLAGS.work_directory + "/val")
-  os.makedirs(FLAGS.work_directory + "/test")
-  os.makedirs(FLAGS.work_directory + "/train12")
-  os.makedirs(FLAGS.work_directory + "/val2")
-  os.makedirs(FLAGS.work_directory + "/val1")
-  os.makedirs(FLAGS.work_directory + "/test2")
-  os.makedirs(FLAGS.work_directory + "/test1")
+
+  os.makedirs(FLAGS.work_directory + "/pairs/train_all")
+  os.makedirs(FLAGS.work_directory + "/pairs/val")
+  os.makedirs(FLAGS.work_directory + "/pairs/test")
+  os.makedirs(FLAGS.work_directory + "/pairs/train12")
+  os.makedirs(FLAGS.work_directory + "/pairs/val2")
+  os.makedirs(FLAGS.work_directory + "/pairs/val1")
+  os.makedirs(FLAGS.work_directory + "/pairs/test2")
+  os.makedirs(FLAGS.work_directory + "/pairs/test1")
+
+  os.makedirs(FLAGS.work_directory + "/triplets/train_all")
+  os.makedirs(FLAGS.work_directory + "/triplets/val")
+  os.makedirs(FLAGS.work_directory + "/triplets/test")
 
 def main(argv):
   del argv # unused.
@@ -648,13 +689,16 @@ def main(argv):
 
   # split function-families
   train_all, val, test = SplitFamilies(symbol_to_files_and_address, [.8, .1, .1])
-  GenerateAllPairs(val, return_sets=False, output_directory=FLAGS.work_directory + "/val",)
-  GenerateAllPairs(test, return_sets=False, output_directory=FLAGS.work_directory + "/test")
+  GenerateAllPairs(val, return_sets=False, output_directory=FLAGS.work_directory + "/pairs/val",)
+  GenerateAllPairs(test, return_sets=False, output_directory=FLAGS.work_directory + "/pairs/test")
+  GenerateTriplets(val, return_sets=False, output_directory=FLAGS.work_directory + "/triplets/val")
+  GenerateTriplets(test, return_sets=False, output_directory=FLAGS.work_directory + "/triplets/test")
     
   ### Alternative 1
   # Here we split the data into the following sets
   # train_all, val, test
-  GenerateAllPairs(train_all, return_sets=False, output_directory=FLAGS.work_directory + "/train_all")
+  GenerateAllPairs(train_all, return_sets=False, output_directory=FLAGS.work_directory + "/pairs/train_all")
+  GenerateTriplets(train_all, return_sets=False, output_directory=FLAGS.work_directory + "/triplets/train_all")
   ### End Alternative 1
 
   ### Alternative 2
@@ -670,13 +714,21 @@ def main(argv):
   # split function-graphs
   chunk, val2, test2 = SplitGraphs(train_all, [.7, .15, .15])
   # could instead do pairs across like the original code
-  GenerateAllPairs(val2, return_sets=False, output_directory=FLAGS.work_directory + "/val2")
-  GenerateAllPairs(test2, return_sets=False, output_directory=FLAGS.work_directory + "/test2")
+  GenerateAllPairs(val2, return_sets=False, output_directory=FLAGS.work_directory + "/pairs/val2")
+  GenerateAllPairs(test2, return_sets=False, output_directory=FLAGS.work_directory + "/pairs/test2")
 
   # split graph-pairs
   train12, val1, test1 = SplitPairs(chunk, [.8, .1, .1])
   WriteFinalSplit(train12, val1, test1)
   ### End Alternative 3
+
+  extracted_symbols = glob.glob(FLAGS.work_directory + "/extracted_symbols*.txt")
+  dot_graph_files = glob.glob(FLAGS.work_directory + "/json*/*.dot")
+  for filePath in [extracted_symbols, dot_graph_files]:
+    try:
+        os.remove(filePath)
+    except:
+        print("Error while deleting file : ", filePath)
 
   print("Done.")
 
