@@ -20,7 +20,7 @@ flags.DEFINE_string('work_directory',
   "The directory into which the training data will be written")
 
 # Generate the fingerprint hashes.
-flags.DEFINE_boolean('generate_fingerprints', False, "Decides whether the " +
+flags.DEFINE_boolean('generate_fingerprints', True, "Decides whether the " +
   "hashes of all features should be extracted and written.")
 
 # Generate full disassemblies in JSON, too. This is not necessary for any of
@@ -723,8 +723,9 @@ def main(argv):
   ### End Alternative 3
 
   extracted_symbols = glob.glob(FLAGS.work_directory + "/extracted_symbols*.txt")
+  function_files = glob.glob(FLAGS.work_directory + "/functions*.txt")
   dot_graph_files = glob.glob(FLAGS.work_directory + "/json*/*.dot")
-  for filePath in [extracted_symbols, dot_graph_files]:
+  for filePath in extracted_symbols + function_files + dot_graph_files:
     try:
         os.remove(filePath)
     except:
