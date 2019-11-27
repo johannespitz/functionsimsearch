@@ -17,7 +17,7 @@ python3 generate_training_data.py
 in a new terminal 
 ```bash
 docker ps
-docker cp <id>:/tmp/train_data <path_on_your_filesystem>
+docker cp <id>:/tmp/data <path_on_your_filesystem>
 ```
 
 If you want to use different binaries replace those in testdata/ELF and testdata/PE.
